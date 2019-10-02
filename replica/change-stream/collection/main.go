@@ -33,23 +33,9 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 
 	collection := client.Database("simple").Collection("change")
-
-	ticker := time.NewTicker(3000 * time.Millisecond)
-	done := make(chan bool)
-
-	go func() {
-		for {
-			select {
-			case <-done:
-				return
-			case t := <-ticker.C:
-				log.Println("Tick at", t)
-			}
-		}
-	}()
 
 	go func() {
 		opts := options.ChangeStream()
@@ -74,7 +60,33 @@ func main() {
 
 		log.Println("Watching Stream quit with error:", cs.Err())
 
-		close(done)
+		wg.Done()
+	}()
+
+	go func() {
+		opts := options.ChangeStream()
+		opts.SetFullDocument("updateLookup")
+
+		cs, err := collection.Watch(context.Background(), mongo.Pipeline{
+			{{"$match", bson.D{{"fullDocument.name", "trigger"}}}},
+		}, opts)
+
+		if err != nil {
+			log.Fatal("Watch Stream [Match] ", err)
+		}
+		defer cs.Close(context.Background())
+
+		for cs.Next(context.Background()) {
+			var ele bson.M
+
+			if err := cs.Decode(&ele); err != nil {
+				log.Println("Watch Stream [[Match]] Decode error ", err)
+				continue
+			}
+			log.Println("Watch Stream [[Match]] received:", ele)
+		}
+
+		log.Println("Watching Stream [[Match]] quit with error:", cs.Err())
 
 		wg.Done()
 	}()
